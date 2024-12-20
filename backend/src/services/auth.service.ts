@@ -7,6 +7,7 @@ import { JWT_REFRESH_SECRET, JWT_SECRET } from "../constants/env";
 import jwt from "jsonwebtoken";
 import appAssert from "../utils/appAssert";
 import { CONFLICT, UNAUTHORIZED } from "../constants/http";
+import { refreshTokenSignOptions, signToken } from "../utils/jwt";
 
 export type LoginUserParams = {
   email: string;
@@ -35,18 +36,8 @@ export const loginUser = async ({
     sessionId: session._id,
   };
   // sign access token & refresh token
-  const refreshToken = jwt.sign(sessionInfo, JWT_REFRESH_SECRET, {
-    audience: ["user"],
-    expiresIn: "30d",
-  });
-  const accessToken = jwt.sign(
-    { ...sessionInfo, userId: user._id },
-    JWT_SECRET,
-    {
-      audience: ["user"],
-      expiresIn: "15m",
-    }
-  );
+  const refreshToken = signToken(sessionInfo, refreshTokenSignOptions);
+  const accessToken = signToken({ ...sessionInfo, userId: user._id });
   // return user and tokens
   return {
     user: user.omitPassword(),
@@ -75,6 +66,7 @@ export const createAccount = async (data: CreateAccountParams) => {
     password: data.password,
   });
   // create verification code
+  //const UserId =  newUser._id;
   const verificationCode = await VerificationCodeModel.create({
     userId: newUser._id,
     type: VerificationCodeType.EmailVerification,
@@ -89,19 +81,14 @@ export const createAccount = async (data: CreateAccountParams) => {
     expiresAt: thirtyDaysFromNow(),
   });
   // sign access token & refresh token
-  const refreshToken = jwt.sign(
+  const refreshToken = signToken(
     { sessionId: session._id },
-    JWT_REFRESH_SECRET,
-    { audience: ["user"], expiresIn: "30d" }
+    refreshTokenSignOptions
   );
-  const accessToken = jwt.sign(
-    { userId: newUser._id, sessionId: session._id },
-    JWT_SECRET,
-    {
-      audience: ["user"],
-      expiresIn: "15m",
-    }
-  );
+  const accessToken = signToken({
+    userId: newUser._id,
+    sessionId: session._id,
+  });
 
   // return user and tokens
   return {
