@@ -2,12 +2,17 @@ import UserModel from "../models/user.model";
 import VerificationCodeModel from "../models/verification.code.model";
 import SessionModel from "../models/session.model";
 import VerificationCodeType from "../constants/verificationCodeTypes";
-import { oneYearFromNow, thirtyDaysFromNow } from "../utils/date";
+import { one_day_ms, oneYearFromNow, thirtyDaysFromNow } from "../utils/date";
 import { JWT_REFRESH_SECRET, JWT_SECRET } from "../constants/env";
 import jwt from "jsonwebtoken";
 import appAssert from "../utils/appAssert";
 import { CONFLICT, UNAUTHORIZED } from "../constants/http";
-import { refreshTokenSignOptions, signToken } from "../utils/jwt";
+import {
+  RefreshTokenPayload,
+  refreshTokenSignOptions,
+  signToken,
+  verifyToken,
+} from "../utils/jwt";
 
 export type LoginUserParams = {
   email: string;
@@ -96,4 +101,35 @@ export const createAccount = async (data: CreateAccountParams) => {
     accessToken: accessToken,
     refreshToken: refreshToken,
   };
+};
+
+export const refreshUserAccessToken = async (refreshToken: string) => {
+  const { payload } = verifyToken<RefreshTokenPayload>(refreshToken, {
+    secret: refreshTokenSignOptions.secret,
+  });
+  const now = Date.now();
+  appAssert(payload, UNAUTHORIZED, "Invalid refresh token");
+  const session = await SessionModel.findById(payload.sessionId);
+  appAssert(
+    session && session.expiresAt.getTime() > now,
+    UNAUTHORIZED,
+    "Session expired"
+  );
+  // refresh session if it expires in the next 24 hours
+  const sessionNeedsRefresh = session.expiresAt.getTime() - now <= one_day_ms();
+  if (sessionNeedsRefresh) {
+    session.expiresAt = thirtyDaysFromNow();
+    await session.save();
+  }
+  // sign tokens
+  const newRefreshToken = sessionNeedsRefresh
+    ? signToken({ sessionId: session._id }, refreshTokenSignOptions)
+    : undefined;
+
+  const accessToken = signToken({
+    userId: session.userId,
+    sessionId: session._id,
+  });
+  // return
+  return { accessToken: accessToken, newRefreshToken: newRefreshToken };
 };
